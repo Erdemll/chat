@@ -12,6 +12,9 @@ type Employee = {
     password_set_at: string | null;
     invited_at: string | null;
     invitation_failed_at: string | null;
+    last_login_at: string | null;
+    last_active_at: string | null;
+    last_message_read_at: string | null;
 };
 defineProps<{
     users: {
@@ -27,7 +30,18 @@ function status(user: Employee) {
     return user.invited_at ? 'Davet gönderildi' : 'Davet bekliyor';
 }
 function date(value: string) {
-    return new Date(value).toLocaleDateString('tr-TR');
+    return new Date(value).toLocaleDateString('tr-TR', {
+        timeZone: 'Europe/Istanbul',
+    });
+}
+function activityDate(value: string | null) {
+    return value
+        ? new Date(value).toLocaleString('tr-TR', {
+              dateStyle: 'medium',
+              timeStyle: 'short',
+              timeZone: 'Europe/Istanbul',
+          })
+        : 'Kayıt yok';
 }
 </script>
 <template>
@@ -43,16 +57,64 @@ function date(value: string) {
                         >Yeni kullanıcı</Link
                     >
                 </div>
+                <p class="text-xs text-slate-500">
+                    Son aktif bilgisi yaklaşık iki dakikalık aralıklarla
+                    güncellenir. Son mesaj görüntüleme ilk okuma kayıtlarını
+                    esas alır; tekrar görüntüleme bu zamanı değiştirmez.
+                    Tarihler Türkiye saatiyle gösterilir.
+                </p>
                 <div
                     v-for="user in users.data"
                     :key="user.id"
                     class="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-slate-200 bg-white p-4 sm:p-5"
                 >
-                    <div class="min-w-0">
+                    <div class="min-w-0 flex-1">
                         <h2 class="font-semibold">{{ user.name }}</h2>
                         <p class="text-sm break-all text-slate-500">
                             {{ user.email }}
                         </p>
+                        <dl class="mt-3 grid gap-3 text-xs sm:grid-cols-3">
+                            <div>
+                                <dt class="text-slate-500">Son giriş</dt>
+                                <dd class="mt-1 text-slate-700">
+                                    <time
+                                        v-if="user.last_login_at"
+                                        :datetime="user.last_login_at"
+                                        >{{
+                                            activityDate(user.last_login_at)
+                                        }}</time
+                                    ><span v-else>Kayıt yok</span>
+                                </dd>
+                            </div>
+                            <div>
+                                <dt class="text-slate-500">Son aktif</dt>
+                                <dd class="mt-1 text-slate-700">
+                                    <time
+                                        v-if="user.last_active_at"
+                                        :datetime="user.last_active_at"
+                                        >{{
+                                            activityDate(user.last_active_at)
+                                        }}</time
+                                    ><span v-else>Kayıt yok</span>
+                                </dd>
+                            </div>
+                            <div>
+                                <dt class="text-slate-500">
+                                    Son mesaj görüntüleme
+                                </dt>
+                                <dd class="mt-1 text-slate-700">
+                                    <time
+                                        v-if="user.last_message_read_at"
+                                        :datetime="user.last_message_read_at"
+                                        >{{
+                                            activityDate(
+                                                user.last_message_read_at,
+                                            )
+                                        }}</time
+                                    ><span v-else>Kayıt yok</span>
+                                </dd>
+                            </div>
+                        </dl>
                         <p class="mt-1 text-xs text-slate-500">
                             {{ user.role === 'admin' ? 'Admin' : 'Çalışan' }} ·
                             {{ user.is_active ? 'Aktif' : 'Pasif' }} ·

@@ -30,6 +30,8 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $invitation_failed_at
  * @property Carbon|null $password_set_at
  * @property Carbon|null $last_login_at
+ * @property Carbon|null $last_active_at
+ * @property Carbon|null $last_message_read_at
  * @property-read Role $assignedRole
  */
 #[Fillable(['name', 'email', 'password'])]
@@ -58,6 +60,8 @@ class User extends Authenticatable
             'invitation_failed_at' => 'datetime',
             'password_set_at' => 'datetime',
             'last_login_at' => 'datetime',
+            'last_active_at' => 'datetime',
+            'last_message_read_at' => 'datetime',
         ];
     }
 
@@ -71,6 +75,12 @@ class User extends Authenticatable
     public function messageReads(): HasMany
     {
         return $this->hasMany(MessageRead::class);
+    }
+
+    /** @return HasMany<MessageMention, $this> */
+    public function messageMentions(): HasMany
+    {
+        return $this->hasMany(MessageMention::class);
     }
 
     public function isAdmin(): bool

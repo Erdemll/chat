@@ -6,11 +6,20 @@ import {
     onBeforeUnmount,
     onMounted,
     ref,
+    watch,
     type ComponentPublicInstance,
 } from 'vue';
 import AppLayout from '@/layouts/AppLayout.vue';
 import { createEcho } from '@/lib/realtime';
 import { RequestError, requestJson } from '@/lib/http';
+import {
+    filterMentionableUsers,
+    findMentionQuery,
+    insertMention,
+    retainMentions,
+    type MentionQuery,
+} from '@/lib/mention-composer';
+import { mentionable } from '@/routes/users';
 import {
     createMessageReadCounts,
     type MessageReadsEvent,
@@ -27,6 +36,7 @@ import type {
     Message,
     MessageReader,
     MessageReadUpdate,
+    MentionableUser,
 } from '@/types/chat';
 import type Echo from 'laravel-echo';
 const props = defineProps<{
@@ -39,6 +49,22 @@ const readCounts = createMessageReadCounts(props.channel.id);
 const hasMore = ref(props.history.has_more);
 const beforeId = ref(props.history.before_id);
 const draft = ref('');
+const composer = ref<HTMLTextAreaElement>();
+const mentionQuery = ref<MentionQuery | null>(null);
+const mentionableUsers = ref<MentionableUser[]>([]);
+const selectedMentions = ref<MentionableUser[]>([]);
+const mentionLoading = ref(false);
+const mentionError = ref('');
+const mentionIndex = ref(0);
+const mentionOptions = computed(() =>
+    filterMentionableUsers(
+        mentionableUsers.value,
+        mentionQuery.value?.query ?? '',
+        page.props.auth.user.id,
+    ),
+);
+let mentionUsersRequested = false;
+let mentionRequest: AbortController | undefined;
 const sending = ref(false);
 const loading = ref(false);
 const error = ref('');
@@ -64,6 +90,78 @@ const messageElements = new Map<
     number,
     { element: HTMLElement; authorId: number }
 >();
+
+watch(draft, (body) => {
+    selectedMentions.value = retainMentions(body, selectedMentions.value);
+});
+
+async function loadMentionableUsers() {
+    if (destroyed || mentionLoading.value) return;
+    mentionUsersRequested = true;
+    mentionLoading.value = true;
+    mentionError.value = '';
+    const request = new AbortController();
+    mentionRequest = request;
+    try {
+        const result = await requestJson<{ data: MentionableUser[] }>(
+            mentionable.url(),
+            { signal: request.signal },
+        );
+        if (!destroyed) mentionableUsers.value = result.data;
+    } catch (cause) {
+        if (destroyed || request.signal.aborted) return;
+        if (
+            cause instanceof RequestError &&
+            [401, 403, 419].includes(cause.status)
+        ) {
+            handleError(cause, 'Çalışan listesi yüklenemedi.');
+        } else {
+            mentionError.value = 'Çalışan listesi yüklenemedi.';
+        }
+    } finally {
+        mentionLoading.value = false;
+    }
+}
+
+function updateMentionQuery() {
+    const element = composer.value;
+    mentionQuery.value =
+        element && element.selectionStart === element.selectionEnd
+            ? findMentionQuery(element.value, element.selectionStart)
+            : null;
+    mentionIndex.value = 0;
+    if (mentionQuery.value && !mentionUsersRequested)
+        void loadMentionableUsers();
+}
+
+function composerKeyup(event: KeyboardEvent) {
+    if (!['ArrowUp', 'ArrowDown', 'Enter', 'Escape'].includes(event.key))
+        updateMentionQuery();
+}
+
+async function chooseMention(user: MentionableUser) {
+    const query = mentionQuery.value;
+    if (!query || user.id === page.props.auth.user.id) return;
+    const selected = retainMentions(draft.value, selectedMentions.value);
+    if (
+        selected.length >= 20 &&
+        !selected.some((item) => item.id === user.id)
+    ) {
+        error.value = 'En fazla 20 çalışan seçebilirsiniz.';
+        return;
+    }
+    const insertion = insertMention(draft.value, query, user);
+    selectedMentions.value = [
+        ...selected.filter((item) => item.id !== user.id),
+        user,
+    ];
+    draft.value = insertion.body;
+    mentionQuery.value = null;
+    mentionError.value = '';
+    await nextTick();
+    composer.value?.focus();
+    composer.value?.setSelectionRange(insertion.caret, insertion.caret);
+}
 
 function registerMessage(
     message: Message,
@@ -174,9 +272,11 @@ function handleError(cause: unknown, fallback: string) {
     error.value =
         cause instanceof RequestError && cause.errors.body?.[0]
             ? cause.errors.body[0]
-            : cause instanceof RequestError && cause.status === 429
-              ? 'Çok hızlı mesaj gönderiyorsunuz. Bir dakika bekleyin.'
-              : fallback;
+            : cause instanceof RequestError && cause.errors.mentions?.[0]
+              ? cause.errors.mentions[0]
+              : cause instanceof RequestError && cause.status === 429
+                ? 'Çok hızlı mesaj gönderiyorsunuz. Bir dakika bekleyin.'
+                : fallback;
 }
 async function loadOlder() {
     if (loading.value || !hasMore.value || beforeId.value === null) return;
@@ -208,14 +308,21 @@ async function send() {
     error.value = '';
     warning.value = '';
     const body = draft.value;
+    const mentions = retainMentions(body, selectedMentions.value).map(
+        (user) => user.id,
+    );
     try {
         const result = await requestJson<{ data: Message; realtime: boolean }>(
             store.url(),
-            { method: 'POST', body: JSON.stringify({ body }) },
+            { method: 'POST', body: JSON.stringify({ body, mentions }) },
         );
         if (destroyed) return;
         merge([result.data]);
-        if (draft.value === body) draft.value = '';
+        if (draft.value === body) {
+            draft.value = '';
+            selectedMentions.value = [];
+            mentionQuery.value = null;
+        }
         if (!result.realtime)
             warning.value =
                 'Mesajınız kaydedildi fakat canlı iletim yapılamadı. Lütfen aynı mesajı tekrar göndermeyin.';
@@ -296,6 +403,7 @@ function cleanup() {
     destroyed = true;
     readTracker?.disconnect();
     readersRequest?.abort();
+    mentionRequest?.abort();
     messageElements.clear();
     if (heartbeat) clearInterval(heartbeat);
     unsubscribe?.();
@@ -311,6 +419,33 @@ function time(value: string) {
     });
 }
 function onKeydown(event: KeyboardEvent) {
+    if (mentionQuery.value && !event.isComposing) {
+        if (event.key === 'Escape') {
+            event.preventDefault();
+            mentionQuery.value = null;
+            return;
+        }
+        if (
+            mentionOptions.value.length &&
+            ['ArrowUp', 'ArrowDown', 'Enter'].includes(event.key) &&
+            !event.shiftKey
+        ) {
+            event.preventDefault();
+            if (event.key === 'Enter') {
+                void chooseMention(
+                    mentionOptions.value[mentionIndex.value] ??
+                        mentionOptions.value[0],
+                );
+            } else {
+                mentionIndex.value =
+                    (mentionIndex.value +
+                        (event.key === 'ArrowDown' ? 1 : -1) +
+                        mentionOptions.value.length) %
+                    mentionOptions.value.length;
+            }
+            return;
+        }
+    }
     if (
         event.key === 'Enter' &&
         !event.shiftKey &&
@@ -581,14 +716,95 @@ onBeforeUnmount(cleanup);
                 </p>
                 <div class="flex items-end gap-2 sm:gap-3">
                     <label for="message-body" class="sr-only">Mesajınız</label>
-                    <textarea
-                        id="message-body"
-                        v-model="draft"
-                        rows="2"
-                        placeholder="Genel kanalına mesaj yazın…"
-                        class="max-h-36 min-h-14 min-w-0 flex-1 resize-none rounded-xl border border-slate-300 bg-slate-50 px-3 py-2.5 text-base outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-600/10 sm:text-sm"
-                        @keydown="onKeydown"
-                    />
+                    <div class="relative min-w-0 flex-1">
+                        <div
+                            v-if="mentionQuery"
+                            class="absolute inset-x-0 bottom-full z-20 mb-2 max-h-52 overflow-y-auto rounded-xl border border-slate-200 bg-white p-1 shadow-lg"
+                        >
+                            <p
+                                v-if="mentionLoading"
+                                role="status"
+                                class="px-3 py-2 text-sm text-slate-500"
+                            >
+                                Çalışanlar yükleniyor…
+                            </p>
+                            <div
+                                v-else-if="mentionError"
+                                role="alert"
+                                class="px-3 py-2 text-sm text-red-700"
+                            >
+                                {{ mentionError }}
+                                <button
+                                    type="button"
+                                    class="ml-2 underline"
+                                    @mousedown.prevent
+                                    @click="loadMentionableUsers"
+                                >
+                                    Tekrar dene
+                                </button>
+                            </div>
+                            <ul
+                                v-else-if="mentionOptions.length"
+                                id="mention-options"
+                                role="listbox"
+                                aria-label="Mention edilebilecek çalışanlar"
+                            >
+                                <li
+                                    v-for="(
+                                        user, optionIndex
+                                    ) in mentionOptions"
+                                    :key="user.id"
+                                >
+                                    <button
+                                        :id="`mention-option-${user.id}`"
+                                        type="button"
+                                        role="option"
+                                        :aria-selected="
+                                            optionIndex === mentionIndex
+                                        "
+                                        class="w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-teal-50 focus:bg-teal-50"
+                                        :class="
+                                            optionIndex === mentionIndex
+                                                ? 'bg-teal-50 text-teal-800'
+                                                : 'text-slate-700'
+                                        "
+                                        @mousedown.prevent
+                                        @click="chooseMention(user)"
+                                    >
+                                        {{ user.name }}
+                                    </button>
+                                </li>
+                            </ul>
+                            <p v-else class="px-3 py-2 text-sm text-slate-500">
+                                Eşleşen aktif çalışan bulunamadı.
+                            </p>
+                        </div>
+                        <textarea
+                            id="message-body"
+                            ref="composer"
+                            v-model="draft"
+                            rows="2"
+                            placeholder="Genel kanalına mesaj yazın…"
+                            aria-autocomplete="list"
+                            :aria-controls="
+                                mentionQuery && mentionOptions.length
+                                    ? 'mention-options'
+                                    : undefined
+                            "
+                            :aria-activedescendant="
+                                mentionQuery && mentionOptions.length
+                                    ? `mention-option-${mentionOptions[mentionIndex]?.id}`
+                                    : undefined
+                            "
+                            class="block max-h-36 min-h-14 w-full resize-none rounded-xl border border-slate-300 bg-slate-50 px-3 py-2.5 text-base outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-600/10 sm:text-sm"
+                            @input="updateMentionQuery"
+                            @click="updateMentionQuery"
+                            @select="updateMentionQuery"
+                            @keyup="composerKeyup"
+                            @blur="mentionQuery = null"
+                            @keydown="onKeydown"
+                        />
+                    </div>
                     <button
                         :disabled="sending || !draft.trim() || count > 4000"
                         class="rounded-xl bg-teal-700 px-4 py-3 text-sm font-medium text-white disabled:opacity-40"

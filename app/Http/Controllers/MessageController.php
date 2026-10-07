@@ -26,13 +26,13 @@ class MessageController extends Controller
     {
         Gate::authorize('view', $message);
 
-        return new MessageResource($message->load('user:id,name')->loadCount('reads'));
+        return new MessageResource($message->load(['user:id,name', 'mentionedUsers:users.id,name'])->loadCount('reads'));
     }
 
     public function store(StoreMessageRequest $request, MessageService $messages): JsonResponse
     {
         try {
-            $result = $messages->send($request->user(), Channel::general(), $request->validated('body'));
+            $result = $messages->send($request->user(), Channel::general(), $request->validated('body'), $request->validated('mentions') ?? []);
         } catch (MessageRejectedException) {
             throw ValidationException::withMessages([
                 'body' => 'Mesajınız şirket iletişim kurallarına uygun olmadığı için gönderilemedi.',

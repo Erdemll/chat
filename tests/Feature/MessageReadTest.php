@@ -171,7 +171,7 @@ test('a maximum batch validates selects and inserts reads in a constant number o
 
     $queries = DB::getQueryLog();
     DB::disableQueryLog();
-    expect($queries)->toHaveCount(4);
+    expect($queries)->toHaveCount(5);
     Event::assertDispatchedTimes(MessageReadsUpdated::class, 1);
     $this->assertDatabaseCount('message_reads', 100);
 });
@@ -187,7 +187,7 @@ test('message history counts do not query reads separately for each message and 
 
     $queries = DB::getQueryLog();
     DB::disableQueryLog();
-    expect($queries)->toHaveCount(2);
+    expect($queries)->toHaveCount(3);
     expect($history['data'])->toHaveCount(40);
     expect($history['data'][39]['read_count'])->toBe(1);
     expect($history['before_id'])->toBe($messages[5]->id);

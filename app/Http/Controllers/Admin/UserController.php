@@ -17,7 +17,10 @@ class UserController extends Controller
 {
     public function index(): Response
     {
-        return Inertia::render('Admin/Users/Index', ['users' => User::query()->select(['id', 'name', 'email', 'role', 'is_active', 'created_at', 'invited_at', 'password_set_at', 'invitation_failed_at'])->orderByDesc('id')->paginate(20)]);
+        return Inertia::render('Admin/Users/Index', ['users' => User::query()
+            ->select(['id', 'name', 'email', 'role', 'is_active', 'created_at', 'invited_at', 'password_set_at', 'invitation_failed_at', 'last_login_at', 'last_active_at'])
+            ->withMax('messageReads as last_message_read_at', 'read_at')
+            ->orderByDesc('id')->paginate(20)]);
     }
 
     public function create(): Response

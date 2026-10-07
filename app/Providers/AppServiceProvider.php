@@ -42,6 +42,7 @@ class AppServiceProvider extends ServiceProvider
         RateLimiter::for('password-reset', fn (Request $request) => Limit::perMinute(5)->by($request->ip()));
         RateLimiter::for('messages', fn (Request $request) => Limit::perMinute(max(1, (int) config('chat.message_rate_limit')))->by((string) $request->user()?->id));
         RateLimiter::for('invitations', fn (Request $request) => Limit::perMinute(10)->by((string) $request->user()?->id));
+        RateLimiter::for('activity', fn (Request $request) => Limit::perMinute(10)->by((string) $request->user()?->id));
         ResetPassword::createUrlUsing(fn (User $user, string $token): string => rtrim(config('app.url'), '/').route('password.reset', ['token' => $token, 'email' => $user->email], false));
     }
 

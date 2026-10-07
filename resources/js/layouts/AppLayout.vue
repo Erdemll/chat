@@ -1,9 +1,41 @@
 <script setup lang="ts">
-import { Link, usePage } from '@inertiajs/vue3';
+import { Link, router, usePage } from '@inertiajs/vue3';
+import { onBeforeUnmount, onMounted } from 'vue';
+import { RequestError, requestJson } from '@/lib/http';
+import { createUserActivityTracker } from '@/lib/user-activity';
+import { store as recordActivity } from '@/routes/activity';
 import { chat, logout } from '@/routes';
 import { dashboard } from '@/routes/admin';
 import { index } from '@/routes/admin/users';
 const page = usePage();
+let tracker: ReturnType<typeof createUserActivityTracker> | undefined;
+let unsubscribe: (() => void) | undefined;
+onMounted(() => {
+    tracker = createUserActivityTracker(
+        page.props.auth.user.id,
+        async (signal) => {
+            try {
+                await requestJson(recordActivity.url(), {
+                    method: 'POST',
+                    body: '{}',
+                    signal,
+                });
+            } catch (cause) {
+                if (
+                    cause instanceof RequestError &&
+                    [401, 403, 419].includes(cause.status)
+                )
+                    tracker?.disconnect();
+                throw cause;
+            }
+        },
+    );
+    unsubscribe = router.on('navigate', () => tracker?.signal());
+});
+onBeforeUnmount(() => {
+    tracker?.disconnect();
+    unsubscribe?.();
+});
 </script>
 <template>
     <div

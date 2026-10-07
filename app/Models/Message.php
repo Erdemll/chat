@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Carbon;
@@ -43,6 +44,18 @@ class Message extends Model
     public function reads(): HasMany
     {
         return $this->hasMany(MessageRead::class);
+    }
+
+    /** @return HasMany<MessageMention, $this> */
+    public function mentions(): HasMany
+    {
+        return $this->hasMany(MessageMention::class);
+    }
+
+    /** @return BelongsToMany<User, $this> */
+    public function mentionedUsers(): BelongsToMany
+    {
+        return $this->belongsToMany(User::class, 'message_mentions')->withPivot('created_at')->orderBy('users.id');
     }
 
     /** @param Builder<Message> $query */

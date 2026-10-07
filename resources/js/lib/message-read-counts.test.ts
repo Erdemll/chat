@@ -8,6 +8,7 @@ const message = (readCount = 0): Message => ({
     body: 'Merhaba',
     created_at: '2026-10-07T12:00:00Z',
     read_count: readCount,
+    mentions: [],
     user: { id: 2, name: 'Ahmet' },
 });
 

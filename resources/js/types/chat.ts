@@ -4,8 +4,10 @@ export type Message = {
     body: string;
     created_at: string;
     read_count: number;
+    mentions: MentionableUser[];
     user: { id: number; name: string };
 };
+export type MentionableUser = { id: number; name: string };
 export type MessageReader = {
     id: number;
     name: string;

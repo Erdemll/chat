@@ -24,7 +24,8 @@ class SessionController extends Controller
             throw ValidationException::withMessages(['email' => 'E-posta veya şifre hatalı; hesabınızın aktif ve şifresinin oluşturulmuş olması gerekir.']);
         }
         $request->session()->regenerate();
-        $request->user()->forceFill(['last_login_at' => now()])->save();
+        $loggedInAt = now();
+        $request->user()->forceFill(['last_login_at' => $loggedInAt, 'last_active_at' => $loggedInAt])->save();
 
         return redirect()->intended(route('chat'));
     }

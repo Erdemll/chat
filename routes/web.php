@@ -7,8 +7,10 @@ use App\Http\Controllers\Auth\NewPasswordController;
 use App\Http\Controllers\Auth\PasswordResetLinkController;
 use App\Http\Controllers\Auth\SessionController;
 use App\Http\Controllers\ChatController;
+use App\Http\Controllers\MentionableUserController;
 use App\Http\Controllers\MessageController;
 use App\Http\Controllers\MessageReadController;
+use App\Http\Controllers\UserActivityController;
 use Illuminate\Support\Facades\Route;
 
 Route::inertia('/', 'Welcome')->name('home');
@@ -24,6 +26,8 @@ Route::middleware('guest')->group(function (): void {
 Route::post('/logout', [SessionController::class, 'destroy'])->middleware('auth')->name('logout');
 Route::middleware(['auth', 'active'])->group(function (): void {
     Route::get('/chat', ChatController::class)->name('chat');
+    Route::post('/activity', UserActivityController::class)->middleware('throttle:activity')->name('activity.store');
+    Route::get('/users/mentionable', MentionableUserController::class)->name('users.mentionable');
     Route::get('/messages', [MessageController::class, 'index'])->name('messages.index');
     Route::post('/messages/read', [MessageReadController::class, 'store'])->name('messages.read');
     Route::get('/messages/{message}/reads', [MessageReadController::class, 'index'])->name('messages.reads');
