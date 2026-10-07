@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Exceptions\MessageRejectedException;
 use App\Http\Requests\StoreMessageRequest;
 use App\Http\Resources\MessageResource;
 use App\Models\Channel;
@@ -9,6 +10,8 @@ use App\Models\Message;
 use App\Services\MessageService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Gate;
+use Illuminate\Validation\ValidationException;
 
 class MessageController extends Controller
 {
@@ -21,14 +24,20 @@ class MessageController extends Controller
 
     public function show(Message $message): MessageResource
     {
-        abort_unless($message->channel_id === Channel::general()->id, 404);
+        Gate::authorize('view', $message);
 
-        return new MessageResource($message->load('user:id,name'));
+        return new MessageResource($message->load('user:id,name')->loadCount('reads'));
     }
 
     public function store(StoreMessageRequest $request, MessageService $messages): JsonResponse
     {
-        $result = $messages->send($request->user(), Channel::general(), $request->validated('body'));
+        try {
+            $result = $messages->send($request->user(), Channel::general(), $request->validated('body'));
+        } catch (MessageRejectedException) {
+            throw ValidationException::withMessages([
+                'body' => 'Mesajınız şirket iletişim kurallarına uygun olmadığı için gönderilemedi.',
+            ]);
+        }
 
         return response()->json(['data' => (new MessageResource($result['message']))->resolve(), 'realtime' => $result['realtime']], 201);
     }

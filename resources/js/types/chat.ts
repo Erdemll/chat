@@ -3,7 +3,17 @@ export type Message = {
     channel_id: number;
     body: string;
     created_at: string;
+    read_count: number;
     user: { id: number; name: string };
+};
+export type MessageReader = {
+    id: number;
+    name: string;
+    read_at: string;
+};
+export type MessageReadUpdate = {
+    message_id: number;
+    read_count: number;
 };
 export type History = {
     data: Message[];

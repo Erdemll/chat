@@ -67,6 +67,12 @@ class User extends Authenticatable
         return $this->hasMany(Message::class);
     }
 
+    /** @return HasMany<MessageRead, $this> */
+    public function messageReads(): HasMany
+    {
+        return $this->hasMany(MessageRead::class);
+    }
+
     public function isAdmin(): bool
     {
         return $this->is_active && $this->role === self::ROLE_ADMIN;

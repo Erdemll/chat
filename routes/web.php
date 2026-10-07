@@ -8,6 +8,7 @@ use App\Http\Controllers\Auth\PasswordResetLinkController;
 use App\Http\Controllers\Auth\SessionController;
 use App\Http\Controllers\ChatController;
 use App\Http\Controllers\MessageController;
+use App\Http\Controllers\MessageReadController;
 use Illuminate\Support\Facades\Route;
 
 Route::inertia('/', 'Welcome')->name('home');
@@ -24,6 +25,8 @@ Route::post('/logout', [SessionController::class, 'destroy'])->middleware('auth'
 Route::middleware(['auth', 'active'])->group(function (): void {
     Route::get('/chat', ChatController::class)->name('chat');
     Route::get('/messages', [MessageController::class, 'index'])->name('messages.index');
+    Route::post('/messages/read', [MessageReadController::class, 'store'])->name('messages.read');
+    Route::get('/messages/{message}/reads', [MessageReadController::class, 'index'])->name('messages.reads');
     Route::get('/messages/{message}', [MessageController::class, 'show'])->name('messages.show');
     Route::post('/messages', [MessageController::class, 'store'])->middleware('throttle:messages')->name('messages.store');
     Route::get('/session-status', fn () => response()->json(['active' => true]))->name('session.status');

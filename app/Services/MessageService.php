@@ -3,21 +3,25 @@
 namespace App\Services;
 
 use App\Events\MessageCreated;
+use App\Exceptions\MessageRejectedException;
 use App\Http\Resources\MessageResource;
 use App\Models\Channel;
 use App\Models\Message;
 use App\Models\User;
+use App\Services\Moderation\MessageModerationService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
 class MessageService
 {
+    public function __construct(private readonly MessageModerationService $moderation) {}
+
     /** @return array{data: array<int, array<string, mixed>>, has_more: bool, before_id: ?int, after_id: ?int} */
     public function history(Channel $channel, ?int $beforeId = null, ?int $afterId = null): array
     {
         $limit = (int) config('chat.page_size');
-        $rows = $channel->messages()->with('user:id,name')
+        $rows = $channel->messages()->with('user:id,name')->withCount('reads')
             ->when($beforeId !== null, fn ($query) => $query->where('id', '<', $beforeId))
             ->when($afterId !== null, fn ($query) => $query->where('id', '>', $afterId))
             ->orderBy('id', $afterId === null ? 'desc' : 'asc')->limit($limit + 1)->get();
@@ -30,6 +34,18 @@ class MessageService
     /** @return array{message: Message, realtime: bool} */
     public function send(User $user, Channel $channel, string $body): array
     {
+        $result = $this->moderation->moderate($body);
+
+        if ($result->blocked()) {
+            Log::notice('Message blocked by moderation', [
+                'user_id' => $user->id,
+                'category' => $result->category,
+                'exception_type' => MessageRejectedException::class,
+            ]);
+
+            throw new MessageRejectedException($result);
+        }
+
         $message = DB::transaction(function () use ($user, $channel, $body): Message {
             $user = User::query()->lockForUpdate()->findOrFail($user->id);
             abort_unless($user->is_active, 403);
@@ -38,7 +54,7 @@ class MessageService
             $message->channel()->associate($channel);
             $message->save();
 
-            return $message->load('user:id,name');
+            return $message->load('user:id,name')->loadCount('reads');
         });
         try {
             event(new MessageCreated($message));

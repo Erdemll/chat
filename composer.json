@@ -11,6 +11,7 @@
     "require": {
         "php": "^8.3",
         "inertiajs/inertia-laravel": "^3.0",
+        "kilimcininkoroglu/terlik": "^1.1",
         "laravel/framework": "^13.17",
         "laravel/reverb": "^1.12",
         "laravel/tinker": "^3.0",
@@ -110,5 +111,11 @@
             "php-http/discovery": true
         }
     },
-    "minimum-stability": "stable"
+    "minimum-stability": "stable",
+    "repositories": {
+        "terlik": {
+            "type": "vcs",
+            "url": "https://github.com/KilimcininKorOglu/terlik.php"
+        }
+    }
 }

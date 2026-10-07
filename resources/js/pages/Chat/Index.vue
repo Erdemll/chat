@@ -1,13 +1,33 @@
 <script setup lang="ts">
 import { Head, router, usePage } from '@inertiajs/vue3';
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
+import {
+    computed,
+    nextTick,
+    onBeforeUnmount,
+    onMounted,
+    ref,
+    type ComponentPublicInstance,
+} from 'vue';
 import AppLayout from '@/layouts/AppLayout.vue';
 import { createEcho } from '@/lib/realtime';
 import { RequestError, requestJson } from '@/lib/http';
-import { index, show, store } from '@/routes/messages';
+import {
+    createMessageReadCounts,
+    type MessageReadsEvent,
+} from '@/lib/message-read-counts';
+import {
+    createMessageReadTracker,
+    type MessageReadTracker,
+} from '@/lib/message-reads';
+import { index, read, reads, show, store } from '@/routes/messages';
 import { status as sessionStatus } from '@/routes/session';
 import { login } from '@/routes';
-import type { History, Message } from '@/types/chat';
+import type {
+    History,
+    Message,
+    MessageReader,
+    MessageReadUpdate,
+} from '@/types/chat';
 import type Echo from 'laravel-echo';
 const props = defineProps<{
     channel: { id: number; name: string; slug: string };
@@ -15,6 +35,7 @@ const props = defineProps<{
 }>();
 const page = usePage();
 const messages = ref<Message[]>(props.history.data);
+const readCounts = createMessageReadCounts(props.channel.id);
 const hasMore = ref(props.history.has_more);
 const beforeId = ref(props.history.before_id);
 const draft = ref('');
@@ -25,6 +46,11 @@ const warning = ref('');
 const connected = ref(false);
 const scrollArea = ref<HTMLElement>();
 const unread = ref(0);
+const readError = ref('');
+const readersFor = ref<number | null>(null);
+const readersLoading = ref(false);
+const readersError = ref('');
+const readers = ref<MessageReader[]>([]);
 const count = computed(() => Array.from(draft.value).length);
 let echo: Echo<'reverb'> | null = null;
 let heartbeat: ReturnType<typeof setInterval> | undefined;
@@ -32,6 +58,85 @@ let unsubscribe: (() => void) | undefined;
 let destroyed = false;
 let catchingUp = false;
 let syncCursor = props.history.data.at(-1)?.id ?? 0;
+let readTracker: MessageReadTracker | undefined;
+let readersRequest: AbortController | undefined;
+const messageElements = new Map<
+    number,
+    { element: HTMLElement; authorId: number }
+>();
+
+function registerMessage(
+    message: Message,
+    element: Element | ComponentPublicInstance | null,
+) {
+    if (!(element instanceof HTMLElement)) {
+        messageElements.delete(message.id);
+        readTracker?.unobserve(message.id);
+        return;
+    }
+    messageElements.set(message.id, { element, authorId: message.user.id });
+    readTracker?.observe(element, message.id, message.user.id);
+}
+
+async function toggleReaders(message: Message) {
+    readersRequest?.abort();
+    if (readersFor.value === message.id) {
+        readersFor.value = null;
+        return;
+    }
+    readersFor.value = message.id;
+    readers.value = [];
+    await loadReaders(message.id);
+}
+
+async function loadReaders(messageId: number, background = false) {
+    readersRequest?.abort();
+    readersError.value = '';
+    if (!background) readersLoading.value = true;
+    const request = new AbortController();
+    readersRequest = request;
+    try {
+        const result = await requestJson<{ data: MessageReader[] }>(
+            reads.url(messageId),
+            { signal: request.signal },
+        );
+        if (
+            destroyed ||
+            readersFor.value !== messageId ||
+            request.signal.aborted
+        )
+            return;
+        readers.value = result.data;
+    } catch (cause) {
+        if (destroyed || request.signal.aborted) return;
+        if (
+            cause instanceof RequestError &&
+            [401, 403, 419].includes(cause.status)
+        ) {
+            handleError(cause, 'Okuyanlar listesi yüklenemedi.');
+            return;
+        }
+        readersError.value = 'Okuyanlar listesi yüklenemedi. Tekrar deneyin.';
+    } finally {
+        if (readersFor.value === messageId && !request.signal.aborted)
+            readersLoading.value = false;
+    }
+}
+function receiveReads(event: MessageReadsEvent) {
+    if (destroyed || event.channel_id !== props.channel.id) return;
+    const openMessage = readersFor.value;
+    const previousCount = messages.value.find(
+        (message) => message.id === openMessage,
+    )?.read_count;
+    readCounts.receive(event);
+    messages.value = messages.value.map(readCounts.apply);
+    const currentCount = messages.value.find(
+        (message) => message.id === openMessage,
+    )?.read_count;
+    if (openMessage !== null && currentCount !== previousCount) {
+        void loadReaders(openMessage, true);
+    }
+}
 function nearBottom(): boolean {
     const area = scrollArea.value;
     return (
@@ -52,7 +157,7 @@ function merge(incoming: Message[]) {
     );
     for (const message of incoming) {
         if (message.channel_id === props.channel.id)
-            existing.set(message.id, message);
+            existing.set(message.id, readCounts.apply(message));
     }
     messages.value = [...existing.values()].sort((a, b) => a.id - b.id);
 }
@@ -182,12 +287,16 @@ async function checkSession() {
 }
 function visibilityChanged() {
     if (!document.hidden) {
+        readTracker?.resume();
         void checkSession();
         void catchUp();
     }
 }
 function cleanup() {
     destroyed = true;
+    readTracker?.disconnect();
+    readersRequest?.abort();
+    messageElements.clear();
     if (heartbeat) clearInterval(heartbeat);
     unsubscribe?.();
     echo?.disconnect();
@@ -213,7 +322,6 @@ function onKeydown(event: KeyboardEvent) {
     }
 }
 onMounted(() => {
-    void scrollBottom();
     echo = createEcho();
     if (echo) {
         unsubscribe = echo.connector.onConnectionChange((state) => {
@@ -225,6 +333,9 @@ onMounted(() => {
                 (event: { message_id: number; channel_id: number }) => {
                     void receive(event);
                 },
+            )
+            .listen('.MessageReadsUpdated', (event: MessageReadsEvent) =>
+                receiveReads(event),
             )
             .subscribed(() => {
                 connected.value = true;
@@ -239,6 +350,44 @@ onMounted(() => {
         void checkSession();
     }, 30000);
     document.addEventListener('visibilitychange', visibilityChanged);
+});
+onMounted(async () => {
+    await scrollBottom();
+    if (
+        destroyed ||
+        !scrollArea.value ||
+        typeof IntersectionObserver === 'undefined'
+    )
+        return;
+    readTracker = createMessageReadTracker(
+        scrollArea.value,
+        page.props.auth.user.id,
+        async (ids, signal) => {
+            const result = await requestJson<{
+                success: boolean;
+                reads: MessageReadUpdate[];
+            }>(read.url(), {
+                method: 'POST',
+                body: JSON.stringify({ message_ids: ids }),
+                signal,
+            });
+            receiveReads({ channel_id: props.channel.id, reads: result.reads });
+            if (!destroyed) readError.value = '';
+        },
+        (cause) => {
+            if (
+                cause instanceof RequestError &&
+                [401, 403, 419].includes(cause.status)
+            ) {
+                handleError(cause, 'Okunma bilgisi kaydedilemedi.');
+                return;
+            }
+            readError.value =
+                'Okunma bilgisi kaydedilemedi. Yeniden denenecek.';
+        },
+    );
+    for (const [id, { element, authorId }] of messageElements)
+        readTracker.observe(element, id, authorId);
 });
 onBeforeUnmount(cleanup);
 </script>
@@ -301,6 +450,7 @@ onBeforeUnmount(cleanup);
                     <article
                         v-for="message in messages"
                         :key="message.id"
+                        :ref="(element) => registerMessage(message, element)"
                         class="flex"
                         :class="
                             message.user.id === page.props.auth.user.id
@@ -336,6 +486,67 @@ onBeforeUnmount(cleanup);
                                 class="mt-2 block text-right text-[10px] opacity-65"
                                 >{{ time(message.created_at) }}</time
                             >
+                            <button
+                                v-if="message.read_count > 0"
+                                type="button"
+                                :aria-expanded="readersFor === message.id"
+                                class="mt-1 block text-right text-[11px] underline-offset-2 opacity-75 hover:underline focus-visible:underline"
+                                @click="toggleReaders(message)"
+                            >
+                                {{ message.read_count }} kişi okudu
+                            </button>
+                            <div
+                                v-if="readersFor === message.id"
+                                class="mt-2 border-t border-current/15 pt-2 text-xs"
+                            >
+                                <div
+                                    class="mb-2 flex items-center justify-between gap-4"
+                                >
+                                    <span class="font-semibold">Okuyanlar</span>
+                                    <button
+                                        type="button"
+                                        class="underline"
+                                        @click="toggleReaders(message)"
+                                    >
+                                        Kapat
+                                    </button>
+                                </div>
+                                <p v-if="readersLoading" role="status">
+                                    Yükleniyor…
+                                </p>
+                                <div v-else-if="readersError" role="alert">
+                                    <p>{{ readersError }}</p>
+                                    <button
+                                        type="button"
+                                        class="mt-1 underline"
+                                        @click="
+                                            readersFor = null;
+                                            toggleReaders(message);
+                                        "
+                                    >
+                                        Tekrar dene
+                                    </button>
+                                </div>
+                                <ul
+                                    v-else-if="readers.length"
+                                    class="space-y-2"
+                                >
+                                    <li
+                                        v-for="reader in readers"
+                                        :key="reader.id"
+                                    >
+                                        <span class="block">{{
+                                            reader.name
+                                        }}</span>
+                                        <time
+                                            :datetime="reader.read_at"
+                                            class="text-[10px] opacity-65"
+                                            >{{ time(reader.read_at) }}</time
+                                        >
+                                    </li>
+                                </ul>
+                                <p v-else>Henüz okuyan yok.</p>
+                            </div>
                         </div>
                     </article>
                 </div>
@@ -353,6 +564,13 @@ onBeforeUnmount(cleanup);
             >
                 <p v-if="error" role="alert" class="mb-2 text-sm text-red-700">
                     {{ error }}
+                </p>
+                <p
+                    v-if="readError"
+                    role="status"
+                    class="mb-2 text-xs text-amber-700"
+                >
+                    {{ readError }}
                 </p>
                 <p
                     v-if="warning"

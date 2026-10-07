@@ -3,6 +3,9 @@
 namespace App\Providers;
 
 use App\Models\User;
+use App\Services\Moderation\CompositeProfanityEngine;
+use App\Services\Moderation\DictionaryProfanityEngine;
+use App\Services\Moderation\ProfanityEngine;
 use Carbon\CarbonImmutable;
 use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Cache\RateLimiting\Limit;
@@ -21,7 +24,8 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        $this->app->singleton(DictionaryProfanityEngine::class, fn (): DictionaryProfanityEngine => new DictionaryProfanityEngine(resource_path('moderation/profanity-extra.json')));
+        $this->app->bind(ProfanityEngine::class, CompositeProfanityEngine::class);
     }
 
     /**
