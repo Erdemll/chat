@@ -7,6 +7,9 @@ import { bunny } from 'laravel-vite-plugin/fonts';
 import { defineConfig, lazyPlugins } from 'vite-plus';
 
 export default defineConfig({
+    build: {
+        target: ['chrome111', 'edge111', 'firefox114', 'safari15.4', 'ios15.4'],
+    },
     plugins: lazyPlugins(() => [
         laravel({
             input: ['resources/css/app.css', 'resources/js/app.ts'],
