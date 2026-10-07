@@ -15,6 +15,8 @@ class SessionController extends Controller
 {
     public function create(): Response
     {
+        Inertia::clearHistory();
+
         return Inertia::render('Auth/Login');
     }
 
@@ -35,6 +37,7 @@ class SessionController extends Controller
         Auth::logout();
         $request->session()->invalidate();
         $request->session()->regenerateToken();
+        Inertia::clearHistory();
 
         return redirect()->route('login');
     }

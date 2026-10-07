@@ -2,6 +2,7 @@
 withDefaults(
     defineProps<{
         id: string;
+        name?: string;
         label: string;
         type?: string;
         error?: string;
@@ -10,13 +11,14 @@ withDefaults(
     }>(),
     { type: 'text', required: true },
 );
-const model = defineModel<string>({ required: true });
+const model = defineModel<string>({ default: '' });
 </script>
 <template>
     <div class="grid gap-1.5">
         <label :for="id" class="text-sm font-medium">{{ label }}</label>
         <input
             :id="id"
+            :name="name ?? id"
             v-model="model"
             :type="type"
             :autocomplete="autocomplete"

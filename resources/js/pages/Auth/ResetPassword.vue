@@ -1,67 +1,65 @@
 <script setup lang="ts">
-import { useForm } from '@inertiajs/vue3';
+import { Form } from '@inertiajs/vue3';
 import AuthShell from '@/components/AuthShell.vue';
 import FormField from '@/components/FormField.vue';
+import { useAuthFormFeedback } from '@/lib/auth-form-feedback';
 import { update } from '@/routes/password';
-const props = defineProps<{ token: string; email: string }>();
-const form = useForm({
-    token: props.token,
-    email: props.email,
-    password: '',
-    password_confirmation: '',
-});
+defineProps<{ token: string; email: string }>();
+const { requestError, clearRequestError, onHttpException, onNetworkError } =
+    useAuthFormFeedback();
 </script>
 <template>
     <AuthShell
         title="Şifrenizi belirleyin"
         description="En az 12 karakter, büyük ve küçük harf, sayı ve sembol kullanın."
     >
-        <form
+        <Form
+            v-bind="update.form()"
+            v-slot="{ errors, processing }"
             class="grid gap-4"
-            @submit.prevent="
-                form.post(update.url(), {
-                    onFinish: () =>
-                        form.reset('password', 'password_confirmation'),
-                })
-            "
+            :reset-on-error="['password', 'password_confirmation']"
+            :reset-on-success="['password', 'password_confirmation']"
+            :on-start="clearRequestError"
+            :on-http-exception="onHttpException"
+            :on-network-error="onNetworkError"
         >
+            <input type="hidden" name="token" :value="token" />
             <FormField
                 id="email"
-                v-model="form.email"
+                :model-value="email"
                 label="E-posta"
                 type="email"
                 autocomplete="username"
-                :error="form.errors.email"
+                :error="errors.email"
             />
             <FormField
                 id="password"
-                v-model="form.password"
                 label="Yeni şifre"
                 type="password"
                 autocomplete="new-password"
-                :error="form.errors.password"
+                :error="errors.password"
             />
             <FormField
                 id="confirmation"
-                v-model="form.password_confirmation"
+                name="password_confirmation"
                 label="Yeni şifre (tekrar)"
                 type="password"
                 autocomplete="new-password"
-                :error="form.errors.password_confirmation"
+                :error="errors.password_confirmation"
             />
-            <p
-                v-if="form.errors.token"
-                role="alert"
-                class="text-sm text-red-700"
-            >
-                {{ form.errors.token }}
+            <p v-if="errors.token" role="alert" class="text-sm text-red-700">
+                {{ errors.token }}
+            </p>
+            <p v-if="requestError" role="alert" class="text-sm text-red-700">
+                {{ requestError }}
             </p>
             <button
-                :disabled="form.processing"
+                type="submit"
+                :disabled="processing"
                 class="rounded-lg bg-teal-700 px-4 py-3 text-white disabled:opacity-50"
             >
-                {{ form.processing ? 'Kaydediliyor…' : 'Şifremi kaydet' }}
+                {{ processing ? 'Kaydediliyor…' : 'Şifremi kaydet' }}
             </button>
-        </form>
+        </Form>
     </AuthShell>
 </template>
