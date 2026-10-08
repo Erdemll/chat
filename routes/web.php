@@ -33,6 +33,8 @@ Route::middleware(['auth', 'active'])->group(function (): void {
     Route::get('/messages/{message}/reads', [MessageReadController::class, 'index'])->name('messages.reads');
     Route::get('/messages/{message}', [MessageController::class, 'show'])->name('messages.show');
     Route::post('/messages', [MessageController::class, 'store'])->middleware('throttle:messages')->name('messages.store');
+    Route::patch('/messages/{message}', [MessageController::class, 'update'])->middleware('throttle:messages')->name('messages.update');
+    Route::delete('/messages/{message}', [MessageController::class, 'destroy'])->name('messages.destroy');
     Route::get('/session-status', fn () => response()->json(['active' => true]))->name('session.status');
     Route::prefix('admin')->name('admin.')->middleware('can:admin')->group(function (): void {
         Route::get('/', DashboardController::class)->name('dashboard');

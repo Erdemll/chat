@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Carbon\CarbonImmutable;
 use Database\Factories\MessageFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Scope;
@@ -12,13 +13,13 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
-use Illuminate\Support\Carbon;
 
 /** @property int $id
  * @property int $channel_id
  * @property int $user_id
  * @property string $body
- * @property Carbon $created_at
+ * @property CarbonImmutable $created_at
+ * @property CarbonImmutable|null $edited_at
  * @property-read User $user
  * @property-read int $reads_count
  */
@@ -27,6 +28,22 @@ class Message extends Model
 {
     /** @use HasFactory<MessageFactory> */
     use HasFactory, SoftDeletes;
+
+    /** @return array<string, string> */
+    protected function casts(): array
+    {
+        return ['edited_at' => 'datetime'];
+    }
+
+    public function editExpiresAt(): CarbonImmutable
+    {
+        return $this->created_at->copy()->addMinutes(max(0, (int) config('chat.message_edit_window_minutes')));
+    }
+
+    public function isWithinEditWindow(): bool
+    {
+        return (int) config('chat.message_edit_window_minutes') > 0 && now()->lte($this->editExpiresAt());
+    }
 
     /** @return BelongsTo<User, $this> */
     public function user(): BelongsTo

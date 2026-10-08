@@ -3,6 +3,10 @@ export type Message = {
     channel_id: number;
     body: string;
     created_at: string;
+    edited_at: string | null;
+    edit_expires_at: string;
+    can_edit: boolean;
+    can_delete: boolean;
     read_count: number;
     mentions: MentionableUser[];
     user: { id: number; name: string };

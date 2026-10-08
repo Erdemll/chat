@@ -10,6 +10,11 @@ import {
     type ComponentPublicInstance,
 } from 'vue';
 import AppLayout from '@/layouts/AppLayout.vue';
+import MessageEditor from '@/components/MessageEditor.vue';
+import {
+    createMessageMutations,
+    type MessageMutationEvent,
+} from '@/lib/message-mutations';
 import { createEcho } from '@/lib/realtime';
 import { RequestError, requestJson } from '@/lib/http';
 import {
@@ -28,7 +33,15 @@ import {
     createMessageReadTracker,
     type MessageReadTracker,
 } from '@/lib/message-reads';
-import { index, read, reads, show, store } from '@/routes/messages';
+import {
+    destroy,
+    index,
+    read,
+    reads,
+    show,
+    store,
+    update,
+} from '@/routes/messages';
 import { status as sessionStatus } from '@/routes/session';
 import { login } from '@/routes';
 import type {
@@ -45,6 +58,11 @@ const props = defineProps<{
 }>();
 const page = usePage();
 const messages = ref<Message[]>(props.history.data);
+const mutations = createMessageMutations(props.channel.id);
+const actionsFor = ref<number | null>(null);
+const editingId = ref<number | null>(null);
+const deletingId = ref<number | null>(null);
+const clockTime = ref(Date.now());
 const readCounts = createMessageReadCounts(props.channel.id);
 const hasMore = ref(props.history.has_more);
 const beforeId = ref(props.history.before_id);
@@ -250,14 +268,137 @@ async function scrollBottom() {
     }
 }
 function merge(incoming: Message[]) {
-    const existing = new Map(
-        messages.value.map((message) => [message.id, message]),
+    messages.value = mutations
+        .merge(messages.value, incoming)
+        .map(readCounts.apply);
+}
+function canEdit(message: Message): boolean {
+    return (
+        message.can_edit &&
+        clockTime.value <= Date.parse(message.edit_expires_at)
     );
-    for (const message of incoming) {
-        if (message.channel_id === props.channel.id)
-            existing.set(message.id, readCounts.apply(message));
+}
+function removeMessage(event: MessageMutationEvent) {
+    if (destroyed || event.channel_id !== props.channel.id) return;
+    messages.value = mutations.remove(messages.value, event);
+    if (editingId.value === event.message_id) editingId.value = null;
+    if (actionsFor.value === event.message_id) actionsFor.value = null;
+    if (readersFor.value === event.message_id) {
+        readersRequest?.abort();
+        readersFor.value = null;
+        readers.value = [];
     }
-    messages.value = [...existing.values()].sort((a, b) => a.id - b.id);
+    readTracker?.unobserve(event.message_id);
+    messageElements.delete(event.message_id);
+}
+async function deleteMessage(message: Message) {
+    if (
+        deletingId.value !== null ||
+        !window.confirm('Bu mesajı silmek istediğinizden emin misiniz?')
+    )
+        return;
+    deletingId.value = message.id;
+    error.value = '';
+    warning.value = '';
+    actionsFor.value = null;
+    try {
+        const result = await requestJson<
+            MessageMutationEvent & { realtime: boolean }
+        >(destroy.url(message.id), { method: 'DELETE' });
+        removeMessage(result);
+        if (!destroyed && !result.realtime)
+            warning.value =
+                'Mesaj silindi fakat canlı iletim yapılamadı. Diğer istemciler yeniden bağlandığında güncellenecek.';
+    } catch (cause) {
+        if (destroyed) return;
+        if (cause instanceof RequestError && cause.status === 404)
+            removeMessage({
+                message_id: message.id,
+                channel_id: props.channel.id,
+            });
+        else if (cause instanceof RequestError && cause.status === 403) {
+            error.value = 'Bu mesajı silme yetkiniz yok.';
+            void checkSession();
+        } else
+            handleError(
+                cause,
+                'Silme işlemi doğrulanamadı. Sohbeti yenileyin.',
+            );
+    } finally {
+        deletingId.value = null;
+    }
+}
+async function saveEdit(
+    id: number,
+    payload: { body: string; mentions: number[]; expected_body: string },
+): Promise<void> {
+    warning.value = '';
+    try {
+        const result = await requestJson<{ data: Message; realtime: boolean }>(
+            update.url(id),
+            { method: 'PATCH', body: JSON.stringify(payload) },
+        );
+        if (destroyed) return;
+        merge([result.data]);
+        if (!result.realtime)
+            warning.value =
+                'Düzenleme kaydedildi fakat canlı iletim yapılamadı. Diğer istemciler yeniden bağlandığında güncellenecek.';
+    } catch (cause) {
+        if (cause instanceof RequestError) {
+            if (cause.status === 404)
+                removeMessage({ message_id: id, channel_id: props.channel.id });
+            else if (cause.status === 403) void checkSession();
+            else if ([401, 419].includes(cause.status))
+                handleError(cause, 'Oturumunuz sona erdi.');
+            else if (cause.status === 409)
+                void receiveUpdated({
+                    message_id: id,
+                    channel_id: props.channel.id,
+                });
+        }
+        throw cause;
+    }
+}
+async function receiveUpdated(event: MessageMutationEvent) {
+    if (
+        destroyed ||
+        !messages.value.some((message) => message.id === event.message_id)
+    )
+        return;
+    try {
+        await mutations.refresh(
+            event,
+            async (id) =>
+                (await requestJson<{ data: Message }>(show.url(id))).data,
+            (message) => {
+                if (!destroyed) merge([message]);
+            },
+        );
+    } catch (cause) {
+        if (destroyed) return;
+        if (cause instanceof RequestError && cause.status === 404)
+            removeMessage(event);
+        else
+            handleError(
+                cause,
+                'Düzenlenen mesaj alınamadı. Sohbeti yenileyin.',
+            );
+    }
+}
+async function reconcileLoadedMessages() {
+    const ids = messages.value.map((message) => message.id);
+    for (let offset = 0; offset < ids.length && !destroyed; offset += 100) {
+        const batch = ids.slice(offset, offset + 100);
+        const result = await requestJson<History>(
+            index.url({ query: { message_ids: batch } }),
+        );
+        if (destroyed) return;
+        const present = new Set(result.data.map((message) => message.id));
+        for (const id of batch)
+            if (!present.has(id))
+                removeMessage({ message_id: id, channel_id: props.channel.id });
+        merge(result.data);
+    }
 }
 function handleError(cause: unknown, fallback: string) {
     if (
@@ -355,6 +496,10 @@ async function receive(event: { message_id: number; channel_id: number }) {
         if (shouldScroll) await scrollBottom();
         else if (isNew) unread.value++;
     } catch (cause) {
+        if (cause instanceof RequestError && cause.status === 404) {
+            removeMessage(event);
+            return;
+        }
         handleError(cause, 'Yeni mesaj alınamadı. Sohbeti yenileyin.');
     }
 }
@@ -364,6 +509,7 @@ async function catchUp() {
     const shouldScroll = nearBottom();
     let cursor = syncCursor;
     try {
+        await reconcileLoadedMessages();
         while (!destroyed) {
             const result = await requestJson<History>(
                 index.url({ query: { after_id: cursor } }),
@@ -472,6 +618,12 @@ onMounted(() => {
             .listen('.MessageReadsUpdated', (event: MessageReadsEvent) =>
                 receiveReads(event),
             )
+            .listen('.MessageDeleted', (event: MessageMutationEvent) =>
+                removeMessage(event),
+            )
+            .listen('.MessageUpdated', (event: MessageMutationEvent) => {
+                void receiveUpdated(event);
+            })
             .subscribed(() => {
                 connected.value = true;
                 void catchUp();
@@ -482,6 +634,7 @@ onMounted(() => {
             });
     }
     heartbeat = setInterval(() => {
+        clockTime.value = Date.now();
         void checkSession();
     }, 30000);
     document.addEventListener('visibilitychange', visibilityChanged);
@@ -601,17 +754,83 @@ onBeforeUnmount(cleanup);
                                     : 'rounded-tl-sm border border-slate-200 bg-white'
                             "
                         >
-                            <p
-                                class="mb-1 text-xs font-semibold"
-                                :class="
-                                    message.user.id === page.props.auth.user.id
-                                        ? 'text-teal-100'
-                                        : 'text-teal-700'
-                                "
+                            <div
+                                class="mb-1 flex items-start justify-between gap-3"
                             >
-                                {{ message.user.name }}
-                            </p>
+                                <p
+                                    class="text-xs font-semibold"
+                                    :class="
+                                        message.user.id ===
+                                        page.props.auth.user.id
+                                            ? 'text-teal-100'
+                                            : 'text-teal-700'
+                                    "
+                                >
+                                    {{ message.user.name }}
+                                </p>
+                                <div
+                                    v-if="
+                                        message.can_delete || canEdit(message)
+                                    "
+                                    class="relative"
+                                >
+                                    <button
+                                        type="button"
+                                        :aria-label="`${message.user.name} mesajı için işlemler`"
+                                        :aria-expanded="
+                                            actionsFor === message.id
+                                        "
+                                        :disabled="deletingId === message.id"
+                                        class="rounded px-2 text-base leading-5 opacity-75 hover:opacity-100 focus-visible:outline-2"
+                                        @click="
+                                            actionsFor =
+                                                actionsFor === message.id
+                                                    ? null
+                                                    : message.id
+                                        "
+                                        @keydown.esc="actionsFor = null"
+                                    >
+                                        ⋮
+                                    </button>
+                                    <div
+                                        v-if="actionsFor === message.id"
+                                        class="absolute right-0 z-10 min-w-28 rounded-lg border border-slate-200 bg-white p-1 text-xs text-slate-900 shadow-lg"
+                                        @keydown.esc="actionsFor = null"
+                                    >
+                                        <button
+                                            v-if="canEdit(message)"
+                                            type="button"
+                                            class="block w-full rounded px-3 py-2 text-left hover:bg-slate-100"
+                                            @click="
+                                                editingId = message.id;
+                                                actionsFor = null;
+                                            "
+                                        >
+                                            Düzenle
+                                        </button>
+                                        <button
+                                            v-if="message.can_delete"
+                                            type="button"
+                                            :disabled="deletingId !== null"
+                                            class="block w-full rounded px-3 py-2 text-left text-red-700 hover:bg-red-50 disabled:opacity-50"
+                                            @click="deleteMessage(message)"
+                                        >
+                                            Sil
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                            <MessageEditor
+                                v-if="editingId === message.id"
+                                :message="message"
+                                :save-message="saveEdit"
+                                @close="editingId = null"
+                                @session-error="
+                                    handleError($event, 'Oturumunuz sona erdi.')
+                                "
+                            />
                             <p
+                                v-else
                                 class="text-sm leading-relaxed [overflow-wrap:anywhere] whitespace-pre-wrap"
                             >
                                 {{ message.body }}
@@ -619,7 +838,10 @@ onBeforeUnmount(cleanup);
                             <time
                                 :datetime="message.created_at"
                                 class="mt-2 block text-right text-[10px] opacity-65"
-                                >{{ time(message.created_at) }}</time
+                                >{{ time(message.created_at)
+                                }}<span v-if="message.edited_at">
+                                    · düzenlendi</span
+                                ></time
                             >
                             <button
                                 v-if="message.read_count > 0"
