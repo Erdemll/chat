@@ -1,5 +1,7 @@
 @import 'tailwindcss';
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 @source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
 @source '../../storage/framework/views/*.php';
 
@@ -8,4 +10,100 @@
         Instrument Sans, ui-sans-serif, system-ui, sans-serif,
         'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol',
         'Noto Color Emoji';
+}
+
+@theme {
+    --color-canvas: #f2f5fa;
+    --color-surface: #ffffff;
+    --color-chat-top: #fbfcff;
+    --color-chat-bottom: #f9fbff;
+    --color-ink: #17243a;
+    --color-muted: #5f7087;
+    --color-line: #e2e8f2;
+    --color-brand-50: #eef2ff;
+    --color-brand-100: #e0e8ff;
+    --color-brand-200: #c5d4ff;
+    --color-brand-500: #3c64bd;
+    --color-brand-600: #284eae;
+    --color-brand-700: #2447a0;
+    --color-brand-800: #263782;
+    --color-brand-900: #1d3471;
+}
+
+@layer base {
+    :root {
+        color-scheme: light;
+    }
+
+    :root.dark {
+        color-scheme: dark;
+        --color-canvas: #0c1422;
+        --color-surface: #151f30;
+        --color-chat-top: #0f192a;
+        --color-chat-bottom: #111d30;
+        --color-ink: #e6edf7;
+        --color-muted: #a6b4c8;
+        --color-line: #2c3a50;
+        --color-brand-50: #202f52;
+        --color-brand-100: #293c65;
+        --color-brand-200: #5069a2;
+        --color-brand-500: #92b4ff;
+        --color-brand-700: #a4c0ff;
+        --color-brand-800: #b4c9ff;
+        --color-brand-900: #dce5ff;
+    }
+
+    body {
+        @apply bg-canvas text-ink antialiased;
+    }
+
+    button:not(:disabled),
+    [role='button']:not(:disabled) {
+        cursor: pointer;
+    }
+
+    :where(a, button, input, textarea, select):focus-visible {
+        outline: 3px solid var(--color-brand-200);
+        outline-offset: 3px;
+    }
+}
+
+@layer components {
+    .ui-card {
+        @apply rounded-[18px] border border-line bg-surface shadow-[0_6px_30px_rgba(28,48,84,0.035)];
+    }
+
+    .ui-button-primary {
+        @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white transition-shadow hover:shadow-md disabled:cursor-default disabled:opacity-50;
+        background-image: linear-gradient(135deg, #284eae, #263782);
+    }
+
+    .ui-button-secondary {
+        @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-line bg-surface px-4 py-2.5 text-sm font-medium text-brand-900 transition-colors hover:bg-brand-50 disabled:cursor-default disabled:opacity-50;
+    }
+
+    .ui-input {
+        @apply w-full rounded-xl border border-line bg-surface px-3 py-3 text-base text-ink outline-none placeholder:text-muted focus:border-brand-500 focus:ring-2 focus:ring-brand-100 sm:text-sm;
+    }
+
+    .ui-page-title {
+        @apply text-2xl font-semibold tracking-tight text-ink;
+    }
+
+    .ui-page-description {
+        @apply mt-2 text-sm leading-relaxed text-muted;
+    }
+
+    .ui-accent {
+        @apply h-1 w-12 rounded-full bg-brand-600;
+        background-image: linear-gradient(90deg, #073eac, #71318f, #d82039);
+    }
+
+    .ui-chat-background {
+        background-color: var(--color-chat-top);
+        background-image: linear-gradient(
+            var(--color-chat-top),
+            var(--color-chat-bottom)
+        );
+    }
 }

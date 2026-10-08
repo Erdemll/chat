@@ -160,7 +160,7 @@ onBeforeUnmount(() => request.abort());
                     ? `edit-mention-${message.id}-${options[selectedIndex]?.id}`
                     : undefined
             "
-            class="block max-h-60 w-full resize-y rounded-lg border border-slate-300 bg-white p-2 text-base text-slate-900 focus:border-teal-600 focus:ring-2 focus:ring-teal-600/20 sm:text-sm"
+            class="ui-input block max-h-60 resize-y p-2"
             @input="updateQuery"
             @click="updateQuery"
             @select="updateQuery"
@@ -174,7 +174,7 @@ onBeforeUnmount(() => request.abort());
         />
         <div
             v-if="query"
-            class="rounded-lg border border-slate-200 bg-white p-1 text-sm text-slate-900 shadow-sm"
+            class="rounded-lg border border-line bg-surface p-1 text-sm text-ink shadow-sm"
         >
             <p v-if="loading" role="status" class="p-2">
                 Çalışanlar yükleniyor…
@@ -202,9 +202,9 @@ onBeforeUnmount(() => request.abort());
                         type="button"
                         role="option"
                         :aria-selected="optionIndex === selectedIndex"
-                        class="w-full rounded px-2 py-1.5 text-left hover:bg-teal-50"
+                        class="w-full rounded px-2 py-1.5 text-left hover:bg-brand-50"
                         :class="
-                            optionIndex === selectedIndex ? 'bg-teal-50' : ''
+                            optionIndex === selectedIndex ? 'bg-brand-50' : ''
                         "
                         @mousedown.prevent
                         @click="choose(user)"
@@ -231,7 +231,7 @@ onBeforeUnmount(() => request.abort());
                     !state.body.trim() ||
                     Array.from(state.body).length > 4000
                 "
-                class="rounded bg-white px-3 py-2 font-semibold text-teal-800 disabled:opacity-50"
+                class="rounded-lg border border-line bg-surface px-3 py-2 font-semibold text-brand-800 disabled:opacity-50"
             >
                 {{ state.saving ? 'Kaydediliyor…' : 'Kaydet' }}
             </button>

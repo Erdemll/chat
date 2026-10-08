@@ -14,24 +14,32 @@ import { readFileSync } from 'node:fs';
 import { stdout } from 'node:process';
 import { performance as renderPerformance } from 'node:perf_hooks';
 import Chat from '../pages/Chat/Index.vue';
+import UserAvatar from '../components/UserAvatar.vue';
+import AppIcon from '../components/AppIcon.vue';
 import type { History, Message } from '../types/chat';
 import { RequestError } from './http';
 
 // Node tests import the SSR build; compile the same SFC's client template for mounting.
-const { descriptor } = parse(
-    readFileSync(new URL('../pages/Chat/Index.vue', import.meta.url), 'utf8'),
-);
-const bindings = compileScript(descriptor, {
-    id: 'chat-history-test',
-}).bindings;
-const template = compileTemplate({
-    source: descriptor.template!.content,
-    filename: 'Index.vue',
-    id: 'chat-history-test',
-    compilerOptions: { mode: 'function', bindingMetadata: bindings },
-});
-// oxlint-disable-next-line typescript/no-implied-eval -- Execute trusted local Vue compiler output in this Node test.
-Chat.render = new Function('Vue', template.code)(Vue);
+for (const [filename, component] of [
+    ['../pages/Chat/Index.vue', Chat],
+    ['../components/UserAvatar.vue', UserAvatar],
+    ['../components/AppIcon.vue', AppIcon],
+] as const) {
+    const { descriptor } = parse(
+        readFileSync(new URL(filename, import.meta.url), 'utf8'),
+    );
+    const bindings = compileScript(descriptor, {
+        id: 'chat-history-test',
+    }).bindings;
+    const template = compileTemplate({
+        source: descriptor.template!.content,
+        filename,
+        id: 'chat-history-test',
+        compilerOptions: { mode: 'function', bindingMetadata: bindings },
+    });
+    // oxlint-disable-next-line typescript/no-implied-eval -- Execute trusted local Vue compiler output in this Node test.
+    component.render = new Function('Vue', template.code)(Vue);
+}
 
 const transport = vi.hoisted(() => ({
     request: vi.fn(),

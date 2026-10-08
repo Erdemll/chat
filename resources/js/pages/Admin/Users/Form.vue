@@ -29,71 +29,85 @@ function submit() {
 <template>
     <AppLayout>
         <Head :title="employee ? 'Kullanıcı düzenle' : 'Yeni kullanıcı'" />
-        <div class="overflow-y-auto p-5 sm:p-8">
-            <form
-                class="mx-auto grid max-w-xl gap-5 rounded-xl border border-slate-200 bg-white p-6"
-                @submit.prevent="submit"
-            >
-                <h1 class="text-xl font-semibold">
+        <div class="min-h-0 flex-1 overflow-y-auto p-5 sm:p-7">
+            <div class="mx-auto w-full max-w-6xl">
+                <h1 class="ui-page-title">
                     {{ employee ? 'Kullanıcı düzenle' : 'Yeni kullanıcı' }}
                 </h1>
-                <p class="text-sm text-slate-500">
-                    Aktif yeni kullanıcıya şifre oluşturma bağlantısı
-                    gönderilir. E-posta değiştiğinde mevcut erişim iptal edilir
-                    ve yeni davet gönderilir.
+                <p class="ui-page-description">
+                    {{
+                        employee
+                            ? 'Çalışanın hesap bilgilerini ve erişimini yönetin.'
+                            : 'Çalışana davet bağlantısı göndererek hesap oluşturun.'
+                    }}
                 </p>
-                <FormField
-                    id="name"
-                    v-model="form.name"
-                    label="İsim"
-                    autocomplete="name"
-                    :error="form.errors.name"
-                />
-                <FormField
-                    id="email"
-                    v-model="form.email"
-                    label="E-posta"
-                    type="email"
-                    autocomplete="email"
-                    :error="form.errors.email"
-                />
-                <label class="grid gap-2 text-sm font-medium"
-                    >Rol<select
-                        v-model="form.role"
-                        class="rounded-lg border border-slate-300 px-3 py-3"
-                    >
-                        <option value="employee">Çalışan</option>
-                        <option value="admin">Admin</option></select
-                    ><span v-if="form.errors.role" class="text-red-700">{{
-                        form.errors.role
-                    }}</span></label
+                <form
+                    class="ui-card mt-6 grid w-full max-w-[600px] gap-5 p-6 sm:p-7"
+                    @submit.prevent="submit"
                 >
-                <label class="flex items-center gap-2 text-sm"
-                    ><input v-model="form.is_active" type="checkbox" /> Hesap
-                    aktif</label
-                >
-                <p
-                    v-if="form.errors.is_active"
-                    role="alert"
-                    class="text-sm text-red-700"
-                >
-                    {{ form.errors.is_active }}
-                </p>
-                <div class="flex gap-3">
-                    <button
-                        :disabled="form.processing"
-                        class="rounded-lg bg-teal-700 px-5 py-3 text-white disabled:opacity-50"
+                    <p
+                        class="rounded-xl bg-brand-50 p-4 text-xs leading-relaxed text-brand-900"
                     >
-                        {{
-                            form.processing ? 'Kaydediliyor…' : 'Kaydet'
-                        }}</button
-                    ><Link
-                        :href="index()"
-                        class="rounded-lg px-4 py-3 text-slate-600"
-                        >Vazgeç</Link
+                        Aktif yeni kullanıcıya şifre oluşturma bağlantısı
+                        gönderilir. E-posta değiştiğinde mevcut erişim iptal
+                        edilir ve yeni davet gönderilir.
+                    </p>
+                    <FormField
+                        id="name"
+                        v-model="form.name"
+                        label="İsim"
+                        autocomplete="name"
+                        :error="form.errors.name"
+                    />
+                    <FormField
+                        id="email"
+                        v-model="form.email"
+                        label="E-posta"
+                        type="email"
+                        autocomplete="email"
+                        :error="form.errors.email"
+                    />
+                    <label class="grid gap-2 text-sm font-medium"
+                        >Rol<select v-model="form.role" class="ui-input">
+                            <option value="employee">Çalışan</option>
+                            <option value="admin">Admin</option></select
+                        ><span
+                            v-if="form.errors.role"
+                            class="text-red-700 dark:text-red-300"
+                            >{{ form.errors.role }}</span
+                        ></label
                     >
-                </div>
-            </form>
+                    <label
+                        class="flex items-center gap-3 rounded-xl border border-line p-4 text-sm"
+                        ><input
+                            v-model="form.is_active"
+                            type="checkbox"
+                            class="size-4 accent-brand-700"
+                        />
+                        Hesap aktif</label
+                    >
+                    <p
+                        v-if="form.errors.is_active"
+                        role="alert"
+                        class="text-sm text-red-700 dark:text-red-300"
+                    >
+                        {{ form.errors.is_active }}
+                    </p>
+                    <div
+                        class="flex flex-wrap justify-end gap-3 border-t border-line pt-5"
+                    >
+                        <Link :href="index()" class="ui-button-secondary"
+                            >Vazgeç</Link
+                        >
+                        <button
+                            :disabled="form.processing"
+                            class="ui-button-primary px-5"
+                        >
+                            {{ form.processing ? 'Kaydediliyor…' : 'Kaydet' }}
+                        </button>
+                    </div>
+                </form>
+            </div>
         </div>
     </AppLayout>
 </template>

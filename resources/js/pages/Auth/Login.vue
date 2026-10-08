@@ -39,20 +39,31 @@ const { requestError, clearRequestError, onHttpException, onNetworkError } =
             />
             <div class="flex items-center justify-between gap-2 text-sm">
                 <label class="flex items-center gap-2"
-                    ><input name="remember" type="checkbox" value="1" /> Beni
-                    hatırla</label
+                    ><input
+                        name="remember"
+                        type="checkbox"
+                        value="1"
+                        class="size-4 accent-brand-700"
+                    />
+                    Beni hatırla</label
                 >
-                <Link :href="request()" class="text-teal-700"
+                <Link
+                    :href="request()"
+                    class="font-medium text-brand-700 hover:underline"
                     >Şifremi unuttum</Link
                 >
             </div>
-            <p v-if="requestError" role="alert" class="text-sm text-red-700">
+            <p
+                v-if="requestError"
+                role="alert"
+                class="text-sm text-red-700 dark:text-red-300"
+            >
                 {{ requestError }}
             </p>
             <button
                 type="submit"
                 :disabled="processing"
-                class="rounded-lg bg-teal-700 px-4 py-3 font-medium text-white disabled:opacity-50"
+                class="ui-button-primary mt-1 w-full py-3"
             >
                 {{ processing ? 'Giriş yapılıyor…' : 'Giriş yap' }}
             </button>

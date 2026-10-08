@@ -15,7 +15,9 @@ const model = defineModel<string>({ default: '' });
 </script>
 <template>
     <div class="grid gap-1.5">
-        <label :for="id" class="text-sm font-medium">{{ label }}</label>
+        <label :for="id" class="text-sm font-medium text-ink">{{
+            label
+        }}</label>
         <input
             :id="id"
             :name="name ?? id"
@@ -25,13 +27,13 @@ const model = defineModel<string>({ default: '' });
             :required="required"
             :aria-invalid="!!error"
             :aria-describedby="error ? `${id}-error` : undefined"
-            class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-600/15"
+            class="ui-input"
         />
         <p
             v-if="error"
             :id="`${id}-error`"
             role="alert"
-            class="text-sm text-red-700"
+            class="text-sm text-red-700 dark:text-red-300"
         >
             {{ error }}
         </p>

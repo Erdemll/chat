@@ -27,13 +27,17 @@ const { requestError, clearRequestError, onHttpException, onNetworkError } =
                 autocomplete="email"
                 :error="errors.email"
             />
-            <p v-if="requestError" role="alert" class="text-sm text-red-700">
+            <p
+                v-if="requestError"
+                role="alert"
+                class="text-sm text-red-700 dark:text-red-300"
+            >
                 {{ requestError }}
             </p>
             <button
                 type="submit"
                 :disabled="processing"
-                class="rounded-lg bg-teal-700 px-4 py-3 text-white disabled:opacity-50"
+                class="ui-button-primary mt-1 w-full py-3"
             >
                 {{ processing ? 'Gönderiliyor…' : 'Şifre bağlantısı gönder' }}
             </button>

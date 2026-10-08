@@ -1,4 +1,7 @@
 import { createInertiaApp } from '@inertiajs/vue3';
+import { useAppearance } from '@/lib/appearance';
+
+useAppearance();
 
 const appName = import.meta.env.VITE_APP_NAME || 'Laravel';
 
@@ -14,7 +17,7 @@ void createInertiaApp({
         });
     },
     progress: {
-        color: '#4B5563',
+        color: '#284eae',
     },
 }).catch((error: unknown) => {
     console.error('Uygulama başlatılamadı.', error);
