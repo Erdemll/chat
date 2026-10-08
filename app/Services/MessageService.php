@@ -27,7 +27,9 @@ class MessageService
      */
     public function history(Channel $channel, ?int $beforeId = null, ?int $afterId = null, ?array $messageIds = null): array
     {
-        $limit = $messageIds === null ? (int) config('chat.page_size') : count($messageIds);
+        $limit = $messageIds === null
+            ? (int) config($beforeId === null && $afterId === null ? 'chat.initial_message_limit' : 'chat.history_batch_size')
+            : count($messageIds);
         $rows = $channel->messages()->with(['user:id,name', 'mentionedUsers:users.id,name'])->withCount('reads')
             ->when($beforeId !== null, fn ($query) => $query->where('id', '<', $beforeId))
             ->when($afterId !== null, fn ($query) => $query->where('id', '>', $afterId))

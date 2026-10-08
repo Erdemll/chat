@@ -12,6 +12,11 @@ import {
 import AppLayout from '@/layouts/AppLayout.vue';
 import MessageEditor from '@/components/MessageEditor.vue';
 import {
+    createMessageHistory,
+    isNearChatBottom,
+    preserveMessageScroll,
+} from '@/lib/message-history';
+import {
     createMessageMutations,
     type MessageMutationEvent,
 } from '@/lib/message-mutations';
@@ -57,15 +62,13 @@ const props = defineProps<{
     history: History;
 }>();
 const page = usePage();
-const messages = ref<Message[]>(props.history.data);
 const mutations = createMessageMutations(props.channel.id);
+const messages = ref<Message[]>(mutations.merge([], props.history.data));
 const actionsFor = ref<number | null>(null);
 const editingId = ref<number | null>(null);
 const deletingId = ref<number | null>(null);
 const clockTime = ref(Date.now());
 const readCounts = createMessageReadCounts(props.channel.id);
-const hasMore = ref(props.history.has_more);
-const beforeId = ref(props.history.before_id);
 const draft = ref('');
 const composer = ref<HTMLTextAreaElement>();
 const mentionQuery = ref<MentionQuery | null>(null);
@@ -84,11 +87,11 @@ const mentionOptions = computed(() =>
 let mentionUsersRequested = false;
 let mentionRequest: AbortController | undefined;
 const sending = ref(false);
-const loading = ref(false);
 const error = ref('');
 const warning = ref('');
 const connected = ref(false);
 const scrollArea = ref<HTMLElement>();
+const historySentinel = ref<HTMLElement>();
 const unread = ref(0);
 const readError = ref('');
 const readersFor = ref<number | null>(null);
@@ -101,13 +104,31 @@ let heartbeat: ReturnType<typeof setInterval> | undefined;
 let unsubscribe: (() => void) | undefined;
 let destroyed = false;
 let catchingUp = false;
-let syncCursor = props.history.data.at(-1)?.id ?? 0;
+let syncCursor = messages.value.at(-1)?.id ?? 0;
 let readTracker: MessageReadTracker | undefined;
 let readersRequest: AbortController | undefined;
 const messageElements = new Map<
     number,
     { element: HTMLElement; authorId: number }
 >();
+const historyLoader = createMessageHistory(
+    props.history,
+    (beforeId, signal) =>
+        requestJson<History>(index.url({ query: { before_id: beforeId } }), {
+            signal,
+        }),
+    (result) => {
+        merge(result.data);
+    },
+    () =>
+        preserveMessageScroll(
+            scrollArea.value,
+            Array.from(messageElements.values(), ({ element }) => element),
+        ),
+    nextTick,
+    (cause) => handleError(cause, 'Eski mesajlar yüklenemedi. Tekrar deneyin.'),
+);
+const { hasMore, loading, failed: historyFailed } = historyLoader;
 
 watch(draft, (body) => {
     selectedMentions.value = retainMentions(body, selectedMentions.value);
@@ -254,10 +275,7 @@ function receiveReads(event: MessageReadsEvent) {
     }
 }
 function nearBottom(): boolean {
-    const area = scrollArea.value;
-    return (
-        !area || area.scrollHeight - area.scrollTop - area.clientHeight < 120
-    );
+    return isNearChatBottom(scrollArea.value);
 }
 async function scrollBottom() {
     await nextTick();
@@ -267,10 +285,13 @@ async function scrollBottom() {
         unread.value = 0;
     }
 }
-function merge(incoming: Message[]) {
+function merge(incoming: Message[]): number {
+    const previousIds = new Set(messages.value.map((message) => message.id));
     messages.value = mutations
         .merge(messages.value, incoming)
         .map(readCounts.apply);
+    return messages.value.filter((message) => !previousIds.has(message.id))
+        .length;
 }
 function canEdit(message: Message): boolean {
     return (
@@ -419,29 +440,9 @@ function handleError(cause: unknown, fallback: string) {
                 ? 'Çok hızlı mesaj gönderiyorsunuz. Bir dakika bekleyin.'
                 : fallback;
 }
-async function loadOlder() {
-    if (loading.value || !hasMore.value || beforeId.value === null) return;
-    loading.value = true;
+function loadOlder() {
     error.value = '';
-    const area = scrollArea.value;
-    const previousHeight = area?.scrollHeight ?? 0;
-    const previousTop = area?.scrollTop ?? 0;
-    try {
-        const result = await requestJson<History>(
-            index.url({ query: { before_id: beforeId.value } }),
-        );
-        if (destroyed) return;
-        merge(result.data);
-        hasMore.value = result.has_more;
-        beforeId.value = result.before_id;
-        await nextTick();
-        if (area)
-            area.scrollTop = previousTop + area.scrollHeight - previousHeight;
-    } catch (cause) {
-        handleError(cause, 'Eski mesajlar yüklenemedi. Tekrar deneyin.');
-    } finally {
-        loading.value = false;
-    }
+    return historyLoader.loadOlder();
 }
 async function send() {
     if (sending.value || !draft.value.trim()) return;
@@ -489,12 +490,9 @@ async function receive(event: { message_id: number; channel_id: number }) {
         );
         if (destroyed) return;
         const shouldScroll = nearBottom();
-        const isNew = !messages.value.some(
-            (message) => message.id === response.data.id,
-        );
-        merge([response.data]);
-        if (shouldScroll) await scrollBottom();
-        else if (isNew) unread.value++;
+        const added = merge([response.data]);
+        if (added && shouldScroll) await scrollBottom();
+        else unread.value += added;
     } catch (cause) {
         if (cause instanceof RequestError && cause.status === 404) {
             removeMessage(event);
@@ -506,7 +504,7 @@ async function receive(event: { message_id: number; channel_id: number }) {
 async function catchUp() {
     if (catchingUp || destroyed) return;
     catchingUp = true;
-    const shouldScroll = nearBottom();
+    let followBottom = nearBottom();
     let cursor = syncCursor;
     try {
         await reconcileLoadedMessages();
@@ -515,12 +513,15 @@ async function catchUp() {
                 index.url({ query: { after_id: cursor } }),
             );
             if (destroyed) break;
-            merge(result.data);
+            const shouldScroll = followBottom && nearBottom();
+            followBottom = shouldScroll;
+            const added = merge(result.data);
+            if (added && shouldScroll) await scrollBottom();
+            else unread.value += added;
             syncCursor = result.after_id ?? syncCursor;
             if (!result.has_more || result.after_id === null) break;
             cursor = result.after_id;
         }
-        if (shouldScroll && !destroyed) await scrollBottom();
     } catch (cause) {
         handleError(cause, 'Eksik mesajlar yüklenemedi. Sohbeti yenileyin.');
     } finally {
@@ -547,6 +548,7 @@ function visibilityChanged() {
 }
 function cleanup() {
     destroyed = true;
+    historyLoader.disconnect();
     readTracker?.disconnect();
     readersRequest?.abort();
     mentionRequest?.abort();
@@ -641,6 +643,8 @@ onMounted(() => {
 });
 onMounted(async () => {
     await scrollBottom();
+    if (!destroyed && scrollArea.value && historySentinel.value)
+        historyLoader.observe(scrollArea.value, historySentinel.value);
     if (
         destroyed ||
         !scrollArea.value ||
@@ -712,17 +716,23 @@ onBeforeUnmount(cleanup);
                 role="log"
                 aria-label="Sohbet mesajları"
                 aria-live="polite"
-                class="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-5 sm:px-6"
-                @scroll="nearBottom() && (unread = 0)"
+                class="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-5 [overflow-anchor:none] sm:px-6"
+                @scroll.passive="nearBottom() && (unread = 0)"
             >
-                <div class="mb-5 flex justify-center">
+                <div ref="historySentinel" class="mb-5 flex justify-center">
                     <button
                         v-if="hasMore"
                         :disabled="loading"
                         class="rounded-full border border-slate-200 bg-white px-4 py-2 text-xs text-slate-600 disabled:opacity-50"
                         @click="loadOlder"
                     >
-                        {{ loading ? 'Yükleniyor…' : 'Daha eski mesajlar' }}
+                        {{
+                            loading
+                                ? 'Yükleniyor…'
+                                : historyFailed
+                                  ? 'Tekrar dene'
+                                  : 'Daha eski mesajlar'
+                        }}
                     </button>
                     <p v-else class="text-xs text-slate-400">
                         Sohbetin başlangıcı
@@ -738,6 +748,17 @@ onBeforeUnmount(cleanup);
                     <article
                         v-for="message in messages"
                         :key="message.id"
+                        v-memo="[
+                            message,
+                            canEdit(message),
+                            editingId === message.id,
+                            actionsFor === message.id,
+                            deletingId,
+                            readersFor === message.id,
+                            readersFor === message.id ? readers : null,
+                            readersFor === message.id && readersLoading,
+                            readersFor === message.id ? readersError : '',
+                        ]"
                         :ref="(element) => registerMessage(message, element)"
                         class="flex"
                         :class="
